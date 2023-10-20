@@ -256,6 +256,6 @@ class logReader(object):
 if __name__ == "__main__":
     import doctest
 
-    obj = logReader('access_short.log')
+    obj = logReader('data/access_short.log')
 
     doctest.testmod(globs={'r': obj}, verbose=True)

@@ -1,6 +1,6 @@
 from logReader import logReader
 
-LOGFILE_PATH = "data/access_short.log"
+LOGFILE_PATH = "data/access.log"
 
 def main():
 
