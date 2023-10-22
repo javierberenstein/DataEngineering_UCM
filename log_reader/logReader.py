@@ -26,6 +26,8 @@ class logReader(object):
             logfile (str): The path to the log file.
         """
         self.loglines = self._load(logfile)
+
+        # Deprecated kwargs
         self.set_user_separator(kwargs.get('user_separator', '"-"'))
         self.set_ip_separator(kwargs.get('ip_separator', "- -"))
         self.set_date_format(kwargs.get('date_format', "DD/MMM/YYYY:HH:mm:ss ZZ"))
