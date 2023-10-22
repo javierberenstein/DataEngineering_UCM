@@ -1,11 +1,15 @@
 from typing import List
 import pendulum
 import logging
+import re
+
+from deprecated import deprecated
 
 from exceptions import (
     SplitStringException,
     DateParseException,
-    NotFoundRoundingChars
+    NotFoundRoundingChars,
+    GroupNotFoundException
 )
 
 
@@ -27,6 +31,8 @@ class logReader(object):
         self.set_date_format(kwargs.get('date_format', "DD/MMM/YYYY:HH:mm:ss ZZ"))
         self.set_rounding_chars(kwargs.get('date_rounding_chars', '[]'))
 
+        self.set_pattern(kwargs.get('pattern', r"(?P<ip>\d+\.\d+\.\d+\.\d+)\s\-\s\-\s\[(?P<date>.+)]\s+\"(?P<command>\w+)\s+(?P<page>\S+)\s+(?P<protocol>\S+)\"\s(?P<status>\d+)\s(?P<bytes>\d+)\s\"\-\"\s\"(?P<user_agent>.+)\""))
+
     def _load(self, logfile: str) -> List[str]:
         """
         Load log lines from a file.
@@ -39,7 +45,8 @@ class logReader(object):
         """
         with open(logfile, 'r') as f:
             return f.readlines()
-        
+    
+    @deprecated("The class uses the pattern functionality now")
     def set_user_separator(self, separator: str) -> None:
         """
         Set the separator for user agent extraction.
@@ -54,6 +61,7 @@ class logReader(object):
         """
         self.user_separator = separator
 
+    @deprecated("The class uses the pattern functionality now")
     def set_ip_separator(self, separator: str) -> None:
         """
         Set the separator for IP address extraction.
@@ -68,6 +76,12 @@ class logReader(object):
         """
         self.ip_separator = separator
 
+    @deprecated("The class uses the pattern functionality now")
+    def set_pattern(self, pattern: str) -> None:
+
+        self.pattern = pattern
+
+    @deprecated("The class uses the pattern functionality now")
     def set_date_format(self, date_format: str) -> None:
         """
         Sets the date format of the log files.
@@ -83,6 +97,7 @@ class logReader(object):
         """
         self.date_format = date_format
 
+    @deprecated("The class uses the pattern functionality now")
     def set_rounding_chars(self, rounding_chars: str) -> None:
         """
         Sets the rounding chars of the date.
@@ -97,6 +112,7 @@ class logReader(object):
         """
         self.rounding_chars = rounding_chars
 
+    @deprecated("The class uses the pattern functionality now")
     def _split_line(self, line: str, separator: str) -> List[str]:
         """
         Split a log line into a list of values using a separator.
@@ -111,6 +127,39 @@ class logReader(object):
             return [line.strip().strip('"') for line in line.split(separator)]
         except Exception as e:
             raise SplitStringException(e)
+        
+    def _get_line_object(self, line: str, object: str) -> str:
+        """
+        Get an object given a pattern with defined objects in a log line.
+
+        Args:
+            line (str): The log line to search for matching groups.
+            object (str): The name of the object group to extract from the line.
+
+        Returns:
+            str: The extracted object value.
+
+        Raises:
+            GroupNotFoundException: If the specified object group is not found in the line.
+
+        Examples
+        --------
+            >>> line = '66.249.66.135 - - [09/Oct/2023:23:29:50 +0200] "GET /sic/investigacion/publicaciones/pdfs/SIC-8-11.pdf HTTP/1.1" 302 648 "-" "Googlebot/2.1 (+http://www.google.com/bot.html"'
+            >>> date = r._get_line_object(line, 'date')
+            >>> assert date == "09/Oct/2023:23:29:50 +0200"
+            >>> user = r._get_line_object(line, 'user')
+            Traceback (most recent call last):
+            exceptions.GroupNotFoundException: Object user not found in the log line.
+            """
+        match = re.search(self.pattern, line)
+
+        if match:
+            try:
+                return match.group(object)
+            except IndexError:
+                raise GroupNotFoundException(group=object)
+        else:
+            logging.error(f'No match with pattern\n{self.pattern}\nin line\n{line}')
 
     def _get_user_agent(self, line: str) -> str:
         """
@@ -124,15 +173,17 @@ class logReader(object):
 
         Examples
         --------
-        >>> r._get_user_agent('66.249.66.35 - - [15/Sep/2023:00:18:46 +0200] "GET /~luis/sw05-06/libre_m2_baja.pdf HTTP/1.1" 200 5940849 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"')
-        'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
-
-        >>> r._get_user_agent('147.96.46.52 - - [10/Oct/2023:12:55:47 +0200] "GET /favicon.ico HTTP/1.1" 404 519 "https://antares.sip.ucm.es/" "-" "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0"')
-        'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0'
+        >>> r._get_user_agent('66.249.66.135 - - [09/Oct/2023:23:29:50 +0200] "GET /sic/investigacion/publicaciones/pdfs/SIC-8-11.pdf HTTP/1.1" 302 648 "-" "Googlebot/2.1 (+http://www.google.com/bot.html)"')
+        'Googlebot/2.1 (+http://www.google.com/bot.html)'
+        >>> r._get_user_agent('39.103.168.88 - - [09/Oct/2023:05:22:59 +0200] "GET /dist/images/mask/guide/cn/step1.jpg HTTP/1.1" 404 498 "-" "python-requests/2.25.1"')
+        'python-requests/2.25.1'
 
         """
         separator = self.user_separator
-        return self._split_line(line, separator)[-1]
+        try:
+            return self._get_line_object(line, 'user_agent')
+        except GroupNotFoundException as e:
+            logging.error(e.message)
 
     def _is_bot(self, line: str) -> bool:
         """
@@ -146,14 +197,11 @@ class logReader(object):
         
         Examples
         --------
-        >>> r._is_bot('147.96.46.52 - - [10/Oct/2023:12:55:47 +0200] "GET /favicon.ico HTTP/1.1" 404 519 "https://antares.sip.ucm.es/" "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0"')
+        >>> r._is_bot('66.249.66.135 - - [09/Oct/2023:23:29:50 +0200] "GET /sic/investigacion/publicaciones/pdfs/SIC-8-11.pdf HTTP/1.1" 302 648 "-" "Googlebot/2.1 (+http://www.google.com/bot.html")')
+        True
+
+        >>> r._is_bot('39.103.168.88 - - [09/Oct/2023:05:22:59 +0200] "GET /dist/images/mask/guide/cn/step1.jpg HTTP/1.1" 404 498 "-" "python-requests/2.25.1"')
         False
-
-        >>> r._is_bot('66.249.66.35 - - [15/Sep/2023:00:18:46 +0200] "GET /~luis/sw05-06/libre_m2_baja.pdf HTTP/1.1" 200 5940849 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"')
-        True
-
-        >>> r._is_bot('213.180.203.109 - - [15/Sep/2023:00:12:18 +0200] "GET /robots.txt HTTP/1.1" 302 567 "-" "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"')
-        True
         """
 
         return 'bot' in self._get_user_agent(line).lower()
@@ -170,18 +218,19 @@ class logReader(object):
 
         Examples
         --------
-        >>> r._get_ipaddr('213.180.203.109 - - [15/Sep/2023:00:12:18 +0200] "GET /robots.txt HTTP/1.1" 302 567 "-" "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"')
-        '213.180.203.109'
+        >>> r._get_ipaddr('66.249.66.135 - - [09/Oct/2023:23:29:50 +0200] "GET /sic/investigacion/publicaciones/pdfs/SIC-8-11.pdf HTTP/1.1" 302 648 "-" "Googlebot/2.1 (+http://www.google.com/bot.html)"')
+        '66.249.66.135'
 
-        >>> r._get_ipaddr('147.96.46.52 - - [10/Oct/2023:12:55:47 +0200] "GET /favicon.ico HTTP/1.1" 404 519 "https://antares.sip.ucm.es/" "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0"')
-        '147.96.46.52'
+        >>> r._get_ipaddr('39.103.168.88 - - [09/Oct/2023:05:22:59 +0200] "GET /dist/images/mask/guide/cn/step1.jpg HTTP/1.1" 404 498 "-" "python-requests/2.25.1"')
+        '39.103.168.88'
         """
         separator = self.ip_separator
 
         try:
-            return self._split_line(line, separator)[0]
-        except SplitStringException as e:
+            return self._get_line_object(line, 'ip')
+        except GroupNotFoundException as e:
             logging.error(e.message)
+
 
     def _get_hour(self, line: str) -> int:
         """
@@ -195,19 +244,17 @@ class logReader(object):
 
         Examples
         ---------
-        >>> r._get_hour('66.249.66.35 - - [15/Sep/2023:00:18:46 +0200] "GET /~luis/sw05-06/libre_m2_baja.pdf HTTP/1.1" 200 5940849 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"')
-        0
+        >>> r._get_hour('66.249.66.135 - - [09/Oct/2023:23:29:50 +0200] "GET /sic/investigacion/publicaciones/pdfs/SIC-8-11.pdf HTTP/1.1" 302 648 "-" "Googlebot/2.1 (+http://www.google.com/bot.html)"')
+        23
 
-        >>> r._get_hour('147.96.46.52 - - [10/Oct/2023:12:55:47 +0200] "GET /favicon.ico HTTP/1.1" 404 519 "https://antacres.sip.ucm.es/" "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0"')
-        12
+        >>> r._get_hour('39.103.168.88 - - [09/Oct/2023:05:22:59 +0200] "GET /dist/images/mask/guide/cn/step1.jpg HTTP/1.1" 404 498 "-" "python-requests/2.25.1"')
+        5
         """
-        try:
-            index_1 = line.find(self.rounding_chars[0]) + 1
-            index_2 = line.find(self.rounding_chars[1])
-        except Exception as e:
-            raise NotFoundRoundingChars(e)
 
-        date_string = line[index_1:index_2]
+        try:
+            date_string = self._get_line_object(line, 'date')
+        except GroupNotFoundException as e:
+            logging.error(e.message)
         try:
             return pendulum.from_format(date_string, self.date_format).hour
         except Exception as e:
@@ -256,6 +303,6 @@ class logReader(object):
 if __name__ == "__main__":
     import doctest
 
-    obj = logReader('data/access_short.log')
+    obj = logReader('log_reader/data/access_short.log')
 
     doctest.testmod(globs={'r': obj}, verbose=True)

@@ -32,5 +32,18 @@ class NotFoundRoundingChars(Exception):
 
     def __str__(self):
         return self.message
+    
+class GroupNotFoundException(Exception):
+    """
+    Custom exception for errors eccountered when searching for a group in the log line
+    """
+    def __init__(self, group: str):
+        self.message = f"Object {group} not found in the log line."
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
+    
+
 
 
