@@ -2,3 +2,15 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Ignore virtual environments
+venv/
+
+# Ignore pytest
+.pytest_cache/
+
+# Ignore egg-info
+*.egg-info
+
+# Ignore dist
+dist/
