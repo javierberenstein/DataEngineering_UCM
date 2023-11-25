@@ -14,3 +14,13 @@ venv/
 
 # Ignore dist
 dist/
+
+# Ignore Scala project files  
+.idea/
+.bsp
+target/
+project/target/
+project/project/
+.idea/
+*.class
+*.log
