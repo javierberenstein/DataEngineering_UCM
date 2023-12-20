@@ -20,7 +20,7 @@ dist/
 .bsp
 target/
 project/target/
-project/project/
+project/
 .idea/
 *.class
 *.log

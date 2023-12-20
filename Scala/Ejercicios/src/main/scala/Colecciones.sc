@@ -102,7 +102,40 @@ plus_100_5(myMap)
 // Definir una función que reciba una colección: minmax(values: Array[Int]) que
 //devuelva un par (tupla) con el menor y mayor valor del array.
 
-def minmax()
+def minmax(array: Array[Int]): Tuple2[Int, Int] =
+  (array.max, array.min)
 
+minmax(notUniqueInt)
 
+// Definir una función que reciba como argumento un String y produzca un mapa
+//con los índices de todos los carácteres. Por ejemplo: Si recibe "albacete", se
+//produzca un mapa: Map("a"->[0, 3], "l"->[1], "b"->[2] ...)
+
+// Functional approach (RECOMMENDED)
+def mapChar(text: String): Map[Char, List[Int]] = {
+  text.zipWithIndex.groupBy(_._1).view.mapValues(_.map(_._2).toList).toMap
+}
+def mapChar_2(text: String): Map[Char, List[Int]] = {
+  // foldLeft, construye una colección de forma acumulativa
+  text.zipWithIndex.foldLeft(Map[Char, List[Int]]()) {
+    case (map, (char, index)) =>
+      map + (char -> (map.getOrElse(char, List[Int]()) :+ index))
+  }
+}
+
+// Imperative approach (NOT RECOMMENDED)
+def mapChar_3(text: String): Map[Char, List[Int]] = {
+  // Mutable Map
+  val map = scala.collection.mutable.Map[Char, List[Int]]()
+  text.zipWithIndex.foreach {
+    case (char, index) =>
+      // Get, if Empty generate List(). Add the index to  the List.
+      map(char) = map.getOrElse(char, List()) :+ index
+  }
+  map.toMap
+}
+
+mapChar("albacete")
+mapChar_2("albacete")
+mapChar_3("albacete")
 

@@ -1,0 +1,14 @@
+SYS_FIELD_NAME,FIELD_DESC
+FL_DATE,org.ntic.entregable.Flight Date (yyyymmdd)
+ORIGIN_AIRPORT_ID,"Origin Airport, Airport ID. An identification number assigned by US DOT to identify a unique airport.  Use this field for airport analysis across a range of years because an airport can change its airport code and airport codes can be reused."
+ORIGIN,Origin Airport
+ORIGIN_CITY_NAME,"Origin Airport, City Name"
+ORIGIN_STATE_ABR,"Origin Airport, State Code"
+DEST_AIRPORT_ID,"Destination Airport, Airport ID. An identification number assigned by US DOT to identify a unique airport.  Use this field for airport analysis across a range of years because an airport can change its airport code and airport codes can be reused."
+DEST,Destination Airport
+DEST_CITY_NAME,"Destination Airport, City Name"
+DEST_STATE_ABR,"Destination Airport, State Code"
+DEP_TIME,Actual Departure org.ntic.entregable.Time (local time: hhmm)
+DEP_DELAY,Difference in minutes between scheduled and actual departure time. Early departures show negative numbers.
+ARR_TIME,Actual Arrival org.ntic.entregable.Time (local time: hhmm)
+ARR_DELAY,Difference in minutes between scheduled and actual arrival time. Early arrivals show negative numbers.
