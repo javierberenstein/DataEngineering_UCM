@@ -1,9 +1,11 @@
+import sbtassembly.AssemblyPlugin.defaultShellScript
+
 ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "2.13.12"
-// ThisBuild / assemblyPrependShellScript := Some(defaultShellScript)
+ThisBuild / assemblyPrependShellScript := Some(defaultShellScript)
 
 
-val mainClassName = "FlightsLoader"
+val mainClassName = "org.ntic.entregable.FlightsLoader"
 
 
 lazy val root = (project in file("."))
