@@ -24,3 +24,8 @@ project/
 .idea/
 *.class
 *.log
+
+# Ignore vscode settings
+.vscode
+
+data/
