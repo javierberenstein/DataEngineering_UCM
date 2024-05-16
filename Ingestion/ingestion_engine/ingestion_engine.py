@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 import logging
+from os.path import join as path_join
 
-import yaml
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.streaming import StreamingQuery
 from utils.autoloader import create_cloud_files_df, create_kafka_streaming_df
 from utils.image import process_images
 from utils.metadata import add_metadata_columns
+from yaml import YAMLError, safe_load
 
 
 class DataIngestion:
@@ -30,14 +31,14 @@ class DataIngestion:
     def load_config(self, path: str):
         try:
             with open(path, "r") as file:
-                config = yaml.safe_load(file)
+                config = safe_load(file)
             self.logger.info(f"Successfully loaded configuration from {path}")
             self.validate_config(config)
             return config
         except FileNotFoundError as e:
             self.logger.error(f"Configuration file not found: {e}")
             raise
-        except yaml.YAMLError as e:
+        except YAMLError as e:
             self.logger.error(f"Error parsing configuration file: {e}")
             raise
         except Exception as e:
@@ -81,6 +82,9 @@ class DataIngestion:
             self.logger.error(f"Error fetching schema for subject {subject}: {e}")
             raise
 
+    def join_paths(self, *paths):
+        return path_join(*paths).replace("\\", "/")
+
     def ingest_data(self):
         datasets = self.config.get("datasets", {})
 
@@ -88,8 +92,12 @@ class DataIngestion:
             try:
                 self.logger.info(f"Starting ingestion for dataset: {dataset['name']}")
                 options = dataset.get("options", {})
-                bronze_path = f"{dataset['bronze_path']}/{dataset['datasource']}/{dataset['dataset']}/"
-                options["cloudFiles.schemaLocation"] = f"{bronze_path}/_schema/"
+                bronze_path = self.join_paths(
+                    dataset["bronze_path"], dataset["datasource"], dataset["dataset"]
+                )
+                options["cloudFiles.schemaLocation"] = self.join_paths(
+                    bronze_path, "_schema"
+                )
 
                 if dataset["format"] == "image":
                     df = process_images(self.spark, dataset["landing_path"])
@@ -148,7 +156,9 @@ class DataIngestion:
 
             format = ingestion_config.get("output_format", "delta")
             opts = {
-                "checkpointLocation": f"{ingestion_config['bronze_path']}/{datasource}/{dataset}/_checkpoint/"
+                "checkpointLocation": self.join_paths(
+                    ingestion_config["bronze_path"], datasource, dataset, "_checkpoint"
+                )
             }
             if sink.get("options"):
                 opts.update(sink.get("options"))

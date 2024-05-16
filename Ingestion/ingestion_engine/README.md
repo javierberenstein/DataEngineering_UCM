@@ -8,8 +8,8 @@ datasets:
     - name: dataset1
       format: csv
       schema: schema_dataset1.json
-      landing_path: abfss://<container>@<account>.dfs.core.windows.net/landing/dataset1/
-      bronze_path: abfss://<container>@<account>.dfs.core.windows.net/bronze/
+      landing_path: abfss://<container>@<account>.dfs.core.windows.net/landing/dataset1
+      bronze_path: abfss://<container>@<account>.dfs.core.windows.net/bronze
       partition_columns: ["column1", "column2"]
       datasource: my_source
       dataset: dataset1
@@ -24,8 +24,8 @@ datasets:
     - name: dataset2
       format: avro
       schema: schema_dataset2.avsc
-      landing_path: abfss://<container>@<account>.dfs.core.windows.net/landing/dataset2/
-      bronze_path: abfss://<container>@<account>.dfs.core.windows.net/bronze/
+      landing_path: abfss://<container>@<account>.dfs.core.windows.net/landing/dataset2
+      bronze_path: abfss://<container>@<account>.dfs.core.windows.net/bronze
       partition_columns: ["column3", "column4"]
       datasource: my_source
       dataset: dataset2
