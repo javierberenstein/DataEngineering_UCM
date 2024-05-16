@@ -116,6 +116,20 @@ class DataIngestion:
                 bronze_path = self.join_paths(
                     dataset["bronze_path"], dataset["datasource"], dataset["dataset"]
                 )
+
+                if dataset.get("incremental", False):
+                    current_date = self.spark.sql(
+                        "SELECT current_date() as date"
+                    ).collect()[0]["date"]
+                    year, month, day = (
+                        current_date.year,
+                        current_date.month,
+                        current_date.day,
+                    )
+                    bronze_path = self.join_paths(
+                        bronze_path, str(year), str(month), str(day)
+                    )
+
                 options["cloudFiles.schemaLocation"] = self.join_paths(
                     bronze_path, "_schema"
                 )
@@ -199,6 +213,9 @@ class DataIngestion:
                 writer = writer.trigger(processingTime=trigger_interval)
             else:
                 writer = writer.trigger(availableNow=True)
+
+            if ingestion_config.get("merge_schema", False):
+                writer = writer.option("mergeSchema", "true")
 
             query = writer.start()
             self.logger.info(f"Streaming data successfully written to {bronze_path}")
