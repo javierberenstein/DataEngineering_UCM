@@ -89,34 +89,12 @@ class DataIngestion:
                 self.logger.info(f"Starting ingestion for dataset: {dataset['name']}")
                 options = dataset.get("options", {})
                 bronze_path = f"{dataset['bronze_path']}/{dataset['datasource']}/{dataset['dataset']}/"
-                schema_location = f"{bronze_path}/_schema/"
-                options["cloudFiles.schemaLocation"] = schema_location
+                options["cloudFiles.schemaLocation"] = f"{bronze_path}/_schema/"
 
                 if dataset["format"] == "image":
                     df = process_images(self.spark, dataset["landing_path"])
                 elif "kafka" in dataset:
-                    kafka_options = dataset.get("kafka", {})
-                    message_format = dataset.get("format", "json")
-                    value_schema = None
-                    if message_format == "avro":
-                        schema_registry_config = dataset.get("schema_registry", {})
-                        if not self.schema_registry_client:
-                            self.schema_registry_client = (
-                                self.setup_schema_registry_client(
-                                    schema_registry_config
-                                )
-                            )
-                        value_subject = f"{dataset['topic_pattern']}-value"
-                        value_schema = self.get_schema(value_subject)
-                    df = create_kafka_streaming_df(
-                        self.spark,
-                        dataset["topic_pattern"],
-                        dataset["key_subject"],
-                        dataset["value_subject"],
-                        kafka_options,
-                        message_format,
-                        value_schema,
-                    )
+                    df = self.create_kafka_streaming_df(dataset)
                 else:
                     df = create_cloud_files_df(
                         self.spark, dataset["landing_path"], options
@@ -134,6 +112,28 @@ class DataIngestion:
             except Exception as e:
                 self.logger.error(f"Error ingesting dataset {dataset['name']}: {e}")
                 raise
+
+    def create_kafka_streaming_df(self, dataset):
+        kafka_options = dataset.get("kafka", {})
+        message_format = dataset.get("format", "json")
+        value_schema = None
+        if message_format == "avro":
+            schema_registry_config = dataset.get("schema_registry", {})
+            if not self.schema_registry_client:
+                self.schema_registry_client = self.setup_schema_registry_client(
+                    schema_registry_config
+                )
+            value_subject = f"{dataset['topic_pattern']}-value"
+            value_schema = self.get_schema(value_subject)
+        return create_kafka_streaming_df(
+            self.spark,
+            dataset["topic_pattern"],
+            dataset["key_subject"],
+            dataset["value_subject"],
+            kafka_options,
+            message_format,
+            value_schema,
+        )
 
     def write_stream(
         self, df: DataFrame, ingestion_config: dict, bronze_path: str
@@ -154,7 +154,6 @@ class DataIngestion:
                 opts.update(sink.get("options"))
 
             query_name = f"{datasource} {dataset}"
-
             writer = (
                 df.writeStream.format(format)
                 .options(**opts)
@@ -164,14 +163,13 @@ class DataIngestion:
 
             mode = ingestion_config.get("mode", "planned")
             trigger_interval = ingestion_config.get("trigger_interval", "1 minute")
-
             if mode == "continuous":
                 writer = writer.trigger(processingTime=trigger_interval)
             else:
                 writer = writer.trigger(availableNow=True)
 
             query = writer.start()
-            self.logger.info(f"Data successfully written to {bronze_path}")
+            self.logger.info(f"Streaming data successfully written to {bronze_path}")
             return query
         except KeyError as e:
             self.logger.error(f"Missing key in streaming dataset configuration: {e}")
