@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="ingestion_engine",
-    version="1.0.6",
+    version="1.0.7",
     packages=find_packages(),
     install_requires=[
         "pyspark",
