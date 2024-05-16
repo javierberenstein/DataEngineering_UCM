@@ -2,6 +2,7 @@
 import logging
 
 import yaml
+from confluent_kafka.schema_registry import SchemaRegistryClient
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import current_timestamp, date_format
 from pyspark.sql.streaming import StreamingQuery
@@ -15,6 +16,8 @@ class DataIngestion:
         self.logger = self.setup_logger()
         self.spark = spark
         self.config = self.load_config(config_path)
+        self.schema_registry_client = None
+        self.schema_cache = {}
 
     def setup_logger(self):
         logger = logging.getLogger("DataIngestion")
@@ -50,6 +53,37 @@ class DataIngestion:
             if key not in config:
                 raise ValueError(f"Missing required configuration key: {key}")
 
+    def setup_schema_registry_client(self, schema_registry_config: dict):
+        try:
+            schema_registry_conf = {"url": schema_registry_config["url"]}
+            if (
+                "username" in schema_registry_config
+                and "password" in schema_registry_config
+            ):
+                schema_registry_conf[
+                    "basic.auth.user.info"
+                ] = f"{schema_registry_config['username']}:{schema_registry_config['password']}"
+            return SchemaRegistryClient(schema_registry_conf)
+        except KeyError as e:
+            self.logger.error(f"Missing key in schema registry configuration: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error setting up schema registry client: {e}")
+            raise
+
+    def get_schema(self, subject: str) -> str:
+        if subject in self.schema_cache:
+            return self.schema_cache[subject]
+        try:
+            schema = self.schema_registry_client.get_latest_version(
+                subject
+            ).schema.schema_str
+            self.schema_cache[subject] = schema
+            return schema
+        except Exception as e:
+            self.logger.error(f"Error fetching schema for subject {subject}: {e}")
+            raise
+
     def ingest_batch(self):
         for dataset in self.config.get("datasets", {}).get("batch", []):
             try:
@@ -64,15 +98,8 @@ class DataIngestion:
                 if dataset["format"] == "image":
                     df = process_images(self.spark, dataset["landing_path"])
                 else:
-                    is_stream = (
-                        dataset.get("options", {}).get("cloudFiles.format", None)
-                        is not None
-                    )
                     df = create_cloud_files_df(
-                        self.spark,
-                        dataset["landing_path"],
-                        options,
-                        is_stream=is_stream,
+                        self.spark, dataset["landing_path"], options
                     )
                 df = add_metadata_columns(df)
                 self.write_data(
