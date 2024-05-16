@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 import logging
+from os.path import join as path_join
 
-import yaml
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import current_timestamp, date_format
+from pyspark.sql.functions import col
 from pyspark.sql.streaming import StreamingQuery
 from utils.autoloader import create_cloud_files_df, create_kafka_streaming_df
 from utils.image import process_images
 from utils.metadata import add_metadata_columns
+from yaml import YAMLError, safe_load
 
 
 class DataIngestion:
@@ -29,18 +30,16 @@ class DataIngestion:
         return logger
 
     def load_config(self, path: str):
-        if not self.logger:
-            self.logger = self.setup_logger()
         try:
             with open(path, "r") as file:
-                config = yaml.safe_load(file)
+                config = safe_load(file)
             self.logger.info(f"Successfully loaded configuration from {path}")
             self.validate_config(config)
             return config
         except FileNotFoundError as e:
             self.logger.error(f"Configuration file not found: {e}")
             raise
-        except yaml.YAMLError as e:
+        except YAMLError as e:
             self.logger.error(f"Error parsing configuration file: {e}")
             raise
         except Exception as e:
@@ -84,127 +83,85 @@ class DataIngestion:
             self.logger.error(f"Error fetching schema for subject {subject}: {e}")
             raise
 
-    def ingest_batch(self):
-        for dataset in self.config.get("datasets", {}).get("batch", []):
+    def join_paths(self, *paths):
+        return path_join(*paths).replace("\\", "/")
+
+    def sanitize_column_names(self, df: DataFrame) -> DataFrame:
+        sanitized_columns = [
+            col(column).alias(
+                column.replace(" ", "_")
+                .replace(",", "")
+                .replace(";", "")
+                .replace("{", "")
+                .replace("}", "")
+                .replace("(", "")
+                .replace(")", "")
+                .replace("\n", "")
+                .replace("\t", "")
+                .replace("=", "")
+            )
+            for column in df.columns
+        ]
+        return df.select(*sanitized_columns)
+
+    def ingest_data(self):
+        datasets = self.config.get("datasets", {})
+
+        for dataset in datasets.get("batch", []) + datasets.get("streaming", []):
             try:
-                self.logger.info(
-                    f"Starting batch ingestion for dataset: {dataset['name']}"
-                )
+                self.logger.info(f"Starting ingestion for dataset: {dataset['name']}")
                 options = dataset.get("options", {})
-                bronze_path = f"{dataset['bronze_path']}/{dataset['datasource']}/{dataset['dataset']}/"
-                schema_location = f"{bronze_path}/_schema/"
-                options["cloudFiles.schemaLocation"] = schema_location
+                bronze_path = self.join_paths(
+                    dataset["bronze_path"], dataset["datasource"], dataset["dataset"]
+                )
+                options["cloudFiles.schemaLocation"] = self.join_paths(
+                    bronze_path, "_schema"
+                )
 
                 if dataset["format"] == "image":
                     df = process_images(self.spark, dataset["landing_path"])
+                elif "kafka" in dataset:
+                    df = self.create_kafka_streaming_df(dataset)
                 else:
                     df = create_cloud_files_df(
                         self.spark, dataset["landing_path"], options
                     )
-                df = add_metadata_columns(df)
-                self.write_data(
-                    df,
-                    bronze_path,
-                    dataset["partition_columns"],
-                    dataset["incremental"],
-                    dataset.get("output_format", "delta"),
-                    dataset.get("merge_schema", False),
-                )
-                self.logger.info(
-                    f"Completed batch ingestion for dataset: {dataset['name']}"
-                )
-            except KeyError as e:
-                self.logger.error(f"Missing key in batch dataset configuration: {e}")
-                raise
-            except Exception as e:
-                self.logger.error(
-                    f"Error ingesting batch dataset {dataset['name']}: {e}"
-                )
-                raise
 
-    def ingest_streaming(self):
-        for dataset in self.config.get("datasets", {}).get("streaming", []):
-            try:
-                self.logger.info(
-                    f"Starting streaming ingestion for dataset: {dataset['name']}"
-                )
-                options = dataset.get("options", {})
-                bronze_path = f"{dataset['bronze_path']}/{dataset['datasource']}/{dataset['dataset']}/"
-                schema_location = f"{bronze_path}/_schema/"
-                options["cloudFiles.schemaLocation"] = schema_location
-
-                kafka_options = dataset.get("kafka", {})
-                message_format = dataset.get("format", "json")
-                value_schema = None
-                if message_format == "avro":
-                    schema_registry_config = dataset.get("schema_registry", {})
-                    if not self.schema_registry_client:
-                        self.schema_registry_client = self.setup_schema_registry_client(
-                            schema_registry_config
-                        )
-                    value_subject = f"{dataset['topic_pattern']}-value"
-                    value_schema = self.get_schema(value_subject)
-                df = create_kafka_streaming_df(
-                    self.spark,
-                    dataset["topic_pattern"],
-                    dataset["key_subject"],
-                    dataset["value_subject"],
-                    kafka_options,
-                    message_format,
-                    value_schema,
-                )
                 df = add_metadata_columns(df)
-                self.write_stream(df, dataset, bronze_path=bronze_path)
-                self.logger.info(
-                    f"Started streaming ingestion for dataset: {dataset['name']}"
-                )
+                df = self.sanitize_column_names(df)
+                self.write_stream(df, dataset, bronze_path)
+                self.logger.info(f"Completed ingestion for dataset: {dataset['name']}")
             except KeyError as e:
-                self.logger.error(
-                    f"Missing key in streaming dataset configuration: {e}"
-                )
+                self.logger.error(f"Missing key in dataset configuration: {e}")
                 raise
             except ValueError as e:
                 self.logger.error(f"Configuration error: {e}")
                 raise
             except Exception as e:
-                self.logger.error(
-                    f"Error ingesting streaming dataset {dataset['name']}: {e}"
-                )
+                self.logger.error(f"Error ingesting dataset {dataset['name']}: {e}")
                 raise
 
-    def write_data(
-        self,
-        df,
-        bronze_path: str,
-        partition_columns: list,
-        incremental: bool,
-        output_format: str,
-        merge_schema: bool,
-    ):
-        try:
-            if incremental:
-                df = (
-                    df.withColumn("year", date_format(current_timestamp(), "yyyy"))
-                    .withColumn("month", date_format(current_timestamp(), "MM"))
-                    .withColumn("day", date_format(current_timestamp(), "dd"))
+    def create_kafka_streaming_df(self, dataset):
+        kafka_options = dataset.get("kafka", {})
+        message_format = dataset.get("format", "json")
+        value_schema = None
+        if message_format == "avro":
+            schema_registry_config = dataset.get("schema_registry", {})
+            if not self.schema_registry_client:
+                self.schema_registry_client = self.setup_schema_registry_client(
+                    schema_registry_config
                 )
-                partition_columns += ["year", "month", "day"]
-
-            writer = (
-                df.write.mode("append" if incremental else "overwrite")
-                .format(output_format)
-                .partitionBy(*partition_columns)
-            )
-            if merge_schema:
-                writer = writer.option("mergeSchema", "true")
-            writer.save(bronze_path)
-            self.logger.info(f"Data successfully written to {bronze_path}")
-        except KeyError as e:
-            self.logger.error(f"Missing key in dataset configuration: {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Error writing data to {bronze_path}: {e}")
-            raise
+            value_subject = f"{dataset['topic_pattern']}-value"
+            value_schema = self.get_schema(value_subject)
+        return create_kafka_streaming_df(
+            self.spark,
+            dataset["topic_pattern"],
+            dataset["key_subject"],
+            dataset["value_subject"],
+            kafka_options,
+            message_format,
+            value_schema,
+        )
 
     def write_stream(
         self, df: DataFrame, ingestion_config: dict, bronze_path: str
@@ -219,13 +176,14 @@ class DataIngestion:
 
             format = ingestion_config.get("output_format", "delta")
             opts = {
-                "checkpointLocation": f"{ingestion_config['bronze_path']}/{datasource}/{dataset}/_checkpoint/"
+                "checkpointLocation": self.join_paths(
+                    ingestion_config["bronze_path"], datasource, dataset, "_checkpoint"
+                )
             }
             if sink.get("options"):
                 opts.update(sink.get("options"))
 
             query_name = f"{datasource} {dataset}"
-
             writer = (
                 df.writeStream.format(format)
                 .options(**opts)
@@ -235,7 +193,6 @@ class DataIngestion:
 
             mode = ingestion_config.get("mode", "planned")
             trigger_interval = ingestion_config.get("trigger_interval", "1 minute")
-
             if mode == "continuous":
                 writer = writer.trigger(processingTime=trigger_interval)
             else:
@@ -253,14 +210,7 @@ class DataIngestion:
 
     def run(self):
         try:
-            self.ingest_batch()
-            self.ingest_streaming()
+            self.ingest_data()
         except Exception as e:
             self.logger.error(f"Error running ingestion process: {e}")
             raise
-
-
-if __name__ == "__main__":
-    spark = SparkSession.builder.appName("DataIngestion").getOrCreate()
-    ingestion = DataIngestion(spark, "configs/ingestion_config.yaml")
-    ingestion.run()
