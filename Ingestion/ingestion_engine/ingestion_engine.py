@@ -214,9 +214,3 @@ class DataIngestion:
         except Exception as e:
             self.logger.error(f"Error running ingestion process: {e}")
             raise
-
-
-if __name__ == "__main__":
-    spark = SparkSession.builder.appName("DataIngestion").getOrCreate()
-    ingestion = DataIngestion(spark, "configs/ingestion_config.yaml")
-    ingestion.run()
