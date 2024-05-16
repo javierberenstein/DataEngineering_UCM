@@ -4,6 +4,7 @@ from os.path import join as path_join
 
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.functions import col
 from pyspark.sql.streaming import StreamingQuery
 from utils.autoloader import create_cloud_files_df, create_kafka_streaming_df
 from utils.image import process_images
@@ -85,6 +86,24 @@ class DataIngestion:
     def join_paths(self, *paths):
         return path_join(*paths).replace("\\", "/")
 
+    def sanitize_column_names(self, df: DataFrame) -> DataFrame:
+        sanitized_columns = [
+            col(column).alias(
+                column.replace(" ", "_")
+                .replace(",", "")
+                .replace(";", "")
+                .replace("{", "")
+                .replace("}", "")
+                .replace("(", "")
+                .replace(")", "")
+                .replace("\n", "")
+                .replace("\t", "")
+                .replace("=", "")
+            )
+            for column in df.columns
+        ]
+        return df.select(*sanitized_columns)
+
     def ingest_data(self):
         datasets = self.config.get("datasets", {})
 
@@ -109,6 +128,7 @@ class DataIngestion:
                     )
 
                 df = add_metadata_columns(df)
+                df = self.sanitize_column_names(df)
                 self.write_stream(df, dataset, bronze_path)
                 self.logger.info(f"Completed ingestion for dataset: {dataset['name']}")
             except KeyError as e:
