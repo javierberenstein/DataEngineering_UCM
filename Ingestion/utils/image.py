@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import input_file_name, current_timestamp
 from pyspark.ml.image import ImageSchema
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import current_timestamp, input_file_name
 
 
 def process_images(spark: SparkSession, path: str):
